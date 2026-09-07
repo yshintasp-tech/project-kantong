@@ -34,10 +34,11 @@ function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents || '{}');
     const action = String(body.action || '').toLowerCase();
+    if (action === 'create_user' || (action === 'create' && body.type === 'user')) return json(mutateUser(body));
     if (action === 'create' || action === 'update') return json(body.type === 'target' ? mutateTarget(body, action) : mutateRecord(body, action));
     if (action === 'delete') return json(body.type === 'target' ? deleteTarget(body) : deleteRecord(body));
     if (action === 'pin') return json(pinTarget(body));
-    return json({ error: 'Action harus create, update, delete, atau pin.' }, 400);
+    return json({ error: 'Action harus create, update, delete, pin, atau create_user.' }, 400);
   } catch (error) {
     return json({ error: error.message }, 400);
   }
@@ -101,6 +102,26 @@ function readUsers() {
       canEdit: String(value(row, tableData.headers, 'canedit')).toLowerCase() === 'true'
     };
   });
+}
+
+function mutateUser(body) {
+  const email = String(body.email || '').trim().toLowerCase();
+  const nickname = String(body.nickname || '').trim();
+  const passwordHash = String(body.passwordHash || body.passwordhash || '').trim();
+  const canEdit = body.canEdit !== false;
+  if (!email || !nickname || !passwordHash) throw new Error('Email, nama panggilan, dan password hash wajib diisi.');
+  const sheet = getSheet(CONFIG.sheets.users);
+  if (!sheet) throw new Error('Sheet tidak ditemukan: users');
+  const tableData = table(sheet);
+  const existing = tableData.rows.find(function(row) {
+    return String(value(row, tableData.headers, 'email') || value(row, tableData.headers, 'user')).toLowerCase() === email;
+  });
+  if (existing) throw new Error('Email sudah terdaftar.');
+  const id = body.id || makeId('USR');
+  const record = { id: id, email: email, passwordhash: passwordHash, nickname: nickname, canedit: canEdit ? 'TRUE' : 'FALSE' };
+  const row = rowForHeaders(tableData.headers, record);
+  sheet.appendRow(row);
+  return { user: { id: id, email: email, nickname: nickname, canEdit: canEdit } };
 }
 
 /**
@@ -201,8 +222,12 @@ function rowForHeaders(headers, record) {
     if (header === 'information') return record.information || '';
     if (header === 'urlfoto') return record.photoUrl || '-';
     if (header === 'target') return record.target || '';
-    if (header === 'owneremail') return record.ownerEmail || '';
-    if (header === 'user') return record.ownerEmail || '';
+    if (header === 'owneremail') return record.ownerEmail || record.email || '';
+    if (header === 'user') return record.ownerEmail || record.email || '';
+    if (header === 'email') return record.email || '';
+    if (header === 'passwordhash') return record.passwordhash || '';
+    if (header === 'nickname') return record.nickname || '';
+    if (header === 'canedit') return record.canedit || 'TRUE';
     if (header === 'category') return record.category || 'others';
     if (header === 'pinned') return record.pinned || 'FALSE';
     return '';

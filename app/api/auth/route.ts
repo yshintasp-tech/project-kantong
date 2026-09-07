@@ -11,10 +11,21 @@ function getAuth() {
 
 async function findUser(email: string, password: string, nickname: string) {
   const localUser = localUsers.get(email.toLowerCase());
-  if (localUser && password === localUser.password && nickname.trim().toLowerCase() === localUser.nickname.toLowerCase()) return localUser;
+  if (
+    localUser &&
+    (password === localUser.password || (localUser.password.includes(":") && verifyPassword(password, localUser.password))) &&
+    nickname.trim().toLowerCase() === localUser.nickname.toLowerCase()
+  ) {
+    return { email: localUser.email, nickname: localUser.nickname, canEdit: localUser.canEdit } satisfies SessionUser;
+  }
   const scriptData = await appsScriptGet("users");
-  const scriptUser = scriptData?.users?.find((item: { email?: string; nickname?: string; passwordHash?: string; canEdit?: boolean }) => item.email?.toLowerCase() === email.toLowerCase() && item.nickname?.toLowerCase() === nickname.trim().toLowerCase());
-  if (scriptUser && verifyPassword(password, scriptUser.passwordHash || "")) return { email: scriptUser.email, nickname: scriptUser.nickname, canEdit: Boolean(scriptUser.canEdit) } satisfies SessionUser;
+  const scriptUser = scriptData?.users?.find(
+    (item: { email?: string; nickname?: string; passwordHash?: string; canEdit?: boolean }) =>
+      item.email?.toLowerCase() === email.toLowerCase() && item.nickname?.toLowerCase() === nickname.trim().toLowerCase()
+  );
+  if (scriptUser && (verifyPassword(password, scriptUser.passwordHash || "") || password === scriptUser.passwordHash)) {
+    return { email: scriptUser.email, nickname: scriptUser.nickname, canEdit: Boolean(scriptUser.canEdit) } satisfies SessionUser;
+  }
   const auth = getAuth();
   if (!auth) return null;
   const sheets = google.sheets({ version: "v4", auth });

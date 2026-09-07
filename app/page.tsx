@@ -37,6 +37,11 @@ export default function Home() {
   const [loginForm, setLoginForm] = useState({ email: "", password: "", nickname: "" });
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState("");
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [signupForm, setSignupForm] = useState({ email: "", password: "", nickname: "" });
+  const [showSignupPassword, setShowSignupPassword] = useState(false);
+  const [signupError, setSignupError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotMessage, setForgotMessage] = useState("");
@@ -127,10 +132,42 @@ export default function Home() {
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoginError("");
-    const response = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(loginForm) });
-    const data = await response.json();
-    if (!response.ok) { setLoginError(data.message ?? "Login gagal."); return; }
-    setUser(data.user);
+    setAuthLoading(true);
+    try {
+      const response = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(loginForm) });
+      const data = await response.json();
+      if (!response.ok) { setLoginError(data.message ?? "Login gagal."); setAuthLoading(false); return; }
+      setUser(data.user);
+    } catch {
+      setLoginError("Gagal menghubungi server.");
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function signup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSignupError("");
+    setAuthLoading(true);
+    try {
+      const response = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(signupForm),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setSignupError(data.message ?? "Pendaftaran gagal.");
+        setAuthLoading(false);
+        return;
+      }
+      setUser(data.user);
+      setSignupForm({ email: "", password: "", nickname: "" });
+    } catch {
+      setSignupError("Gagal menghubungi server.");
+    } finally {
+      setAuthLoading(false);
+    }
   }
 
   async function requestReset(event: FormEvent<HTMLFormElement>) {
@@ -140,21 +177,181 @@ export default function Home() {
     setForgotMessage(data.message);
   }
 
-  async function logout() { await fetch("/api/auth", { method: "DELETE" }); setUser(null); }
+  async function logout() {
+    try {
+      await fetch("/api/auth", { method: "DELETE" });
+    } catch {
+      // Abaikan error jaringan saat logout
+    }
+    setUser(null);
+    setShowSettings(false);
+  }
 
   if (!authChecked) return <main className="auth-shell"><div className="auth-card"><span className="brand-mark">K</span><p className="kicker">KANTONG</p><h1>Menyiapkan ruang uangmu</h1></div></main>;
   if (!user && forgotMode) return <main className="auth-shell"><form className="auth-card" onSubmit={requestReset}><span className="brand-mark">K</span><p className="kicker">AKSES AKUN</p><h1>Lupa password?</h1><p className="auth-copy">Masukkan email akunmu. Kami akan mengirimkan tautan untuk mengganti password.</p><label>Email pengguna<input required type="email" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} placeholder="nama@email.com" /></label>{forgotMessage && <p className="auth-success">{forgotMessage}</p>}<button className="primary-button full" type="submit">Kirim instruksi</button><button type="button" className="back-button" onClick={() => { setForgotMode(false); setForgotMessage(""); }}>← Kembali ke login</button></form></main>;
-  if (!user) return <main className="auth-shell"><form className="auth-card" onSubmit={login}><span className="brand-mark">K</span><p className="kicker">RUANG KEUANGAN PRIBADI</p><h1>Masuk ke Kantong</h1><p className="auth-copy">Catat pemasukan, atur target, dan jaga langkahmu tetap terarah.</p><label>Email pengguna<input required type="email" value={loginForm.email} onChange={(event) => setLoginForm({ ...loginForm, email: event.target.value })} placeholder="nama@email.com" /></label><label>Password aplikasi<div className="password-field"><input required type={showPassword ? "text" : "password"} value={loginForm.password} onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })} placeholder="Masukkan password" /><button type="button" className="password-toggle" onClick={() => setShowPassword((current) => !current)}>{showPassword ? "Sembunyikan" : "Lihat"}</button></div></label><label>Nama panggilan<input required value={loginForm.nickname} onChange={(event) => setLoginForm({ ...loginForm, nickname: event.target.value })} placeholder="Contoh: Andi" /></label>{loginError && <p className="auth-error">{loginError}</p>}<button className="primary-button full" type="submit">Masuk</button><button type="button" className="forgot-button" onClick={() => setForgotMode(true)}>Lupa password?</button><small className="demo-hint">Demo: demo@kantong.app · kantong123 · Andi</small></form></main>;
+  if (!user) return (
+    <main className="auth-shell">
+      <div className="auth-card">
+        <div className="auth-header">
+          <span className="brand-mark">K</span>
+          <div className="auth-tabs">
+            <button
+              type="button"
+              className={authMode === "login" ? "auth-tab active" : "auth-tab"}
+              onClick={() => { setAuthMode("login"); setLoginError(""); setSignupError(""); }}
+            >
+              Masuk
+            </button>
+            <button
+              type="button"
+              className={authMode === "signup" ? "auth-tab active" : "auth-tab"}
+              onClick={() => { setAuthMode("signup"); setLoginError(""); setSignupError(""); }}
+            >
+              Daftar Akun
+            </button>
+          </div>
+        </div>
+
+        {authMode === "login" ? (
+          <form onSubmit={login}>
+            <p className="kicker">RUANG KEUANGAN PRIBADI</p>
+            <h1>Masuk ke Kantong</h1>
+            <p className="auth-copy">Catat pemasukan, atur target, dan jaga langkahmu tetap terarah.</p>
+            <label>
+              Email pengguna
+              <input
+                required
+                type="email"
+                value={loginForm.email}
+                onChange={(event) => setLoginForm({ ...loginForm, email: event.target.value })}
+                placeholder="nama@email.com"
+              />
+            </label>
+            <label>
+              Password aplikasi
+              <div className="password-field">
+                <input
+                  required
+                  type={showPassword ? "text" : "password"}
+                  value={loginForm.password}
+                  onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
+                  placeholder="Masukkan password"
+                />
+                <button type="button" className="password-toggle" onClick={() => setShowPassword((current) => !current)}>
+                  {showPassword ? "Sembunyikan" : "Lihat"}
+                </button>
+              </div>
+            </label>
+            <label>
+              Nama panggilan
+              <input
+                required
+                value={loginForm.nickname}
+                onChange={(event) => setLoginForm({ ...loginForm, nickname: event.target.value })}
+                placeholder="Contoh: Andi"
+              />
+            </label>
+            {loginError && <p className="auth-error">{loginError}</p>}
+            <button className="primary-button full" type="submit" disabled={authLoading}>
+              {authLoading ? "Memproses..." : "Masuk"}
+            </button>
+            <div className="auth-footer-links">
+              <button type="button" className="forgot-button" onClick={() => setForgotMode(true)}>
+                Lupa password?
+              </button>
+              <button
+                type="button"
+                className="switch-mode-button"
+                onClick={() => { setAuthMode("signup"); setLoginError(""); }}
+              >
+                Belum punya akun? <strong>Daftar di sini</strong>
+              </button>
+            </div>
+            <small className="demo-hint">Demo: demo@kantong.app · kantong123 · Andi</small>
+          </form>
+        ) : (
+          <form onSubmit={signup}>
+            <p className="kicker">PENDAFTARAN PENGGUNA</p>
+            <h1>Buat Akun Kantong</h1>
+            <p className="auth-copy">Daftar untuk mulai mencatat keuangan dan mewujudkan target masa depanmu.</p>
+            <label>
+              Email pengguna
+              <input
+                required
+                type="email"
+                value={signupForm.email}
+                onChange={(event) => setSignupForm({ ...signupForm, email: event.target.value })}
+                placeholder="nama@email.com"
+              />
+            </label>
+            <label>
+              Password aplikasi
+              <div className="password-field">
+                <input
+                  required
+                  minLength={6}
+                  type={showSignupPassword ? "text" : "password"}
+                  value={signupForm.password}
+                  onChange={(event) => setSignupForm({ ...signupForm, password: event.target.value })}
+                  placeholder="Minimal 6 karakter"
+                />
+                <button type="button" className="password-toggle" onClick={() => setShowSignupPassword((current) => !current)}>
+                  {showSignupPassword ? "Sembunyikan" : "Lihat"}
+                </button>
+              </div>
+            </label>
+            <label>
+              Nama panggilan
+              <input
+                required
+                minLength={2}
+                value={signupForm.nickname}
+                onChange={(event) => setSignupForm({ ...signupForm, nickname: event.target.value })}
+                placeholder="Contoh: Budi"
+              />
+            </label>
+            {signupError && <p className="auth-error">{signupError}</p>}
+            <button className="primary-button full" type="submit" disabled={authLoading}>
+              {authLoading ? "Mendaftarkan..." : "Daftar Akun"}
+            </button>
+            <div className="auth-footer-links">
+              <button
+                type="button"
+                className="switch-mode-button"
+                onClick={() => { setAuthMode("login"); setSignupError(""); }}
+              >
+                Sudah punya akun? <strong>Masuk di sini</strong>
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </main>
+  );
 
   return <main className="shell">
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">K</span><span>Kantong</span></div>
       <nav><button className={activeView === "overview" && !showSettings ? "nav-item active" : "nav-item"} onClick={() => { setActiveView("overview"); setShowSettings(false); }}><span>⌂</span> Ikhtisar</button><button className={activeView === "activity" && !showSettings ? "nav-item active" : "nav-item"} onClick={() => { setActiveView("activity"); setShowSettings(false); }}><span>↕</span> Aktivitas</button><button className="nav-item" onClick={() => user.canEdit && setShowTargetForm(true)}><span>◷</span> Target</button><button className={showSettings ? "nav-item active" : "nav-item"} onClick={() => setShowSettings(true)}><span>⚙</span> Settings</button></nav>
-      <div className="sidebar-bottom"><div className="mini-target"><span className="eyebrow">TARGET BULAN INI</span><strong>{money.format(totals.saving)}</strong><div className="progress"><i style={{ width: "62%" }} /></div><small>62% dari target tabungan</small></div><div className="profile"><div className="avatar">{user.nickname.slice(0, 2).toUpperCase()}</div><div><strong>{user.nickname}</strong><small>{user.canEdit ? "Editor" : "Akses baca"}</small></div><button className="logout-button" onClick={logout} title="Keluar">↪</button></div></div>
+      <div className="sidebar-bottom"><div className="mini-target"><span className="eyebrow">TARGET BULAN INI</span><strong>{money.format(totals.saving)}</strong><div className="progress"><i style={{ width: "62%" }} /></div><small>62% dari target tabungan</small></div><div className="profile"><div className="avatar">{user.nickname.slice(0, 2).toUpperCase()}</div><div className="profile-info"><strong>{user.nickname}</strong><small>{user.canEdit ? "Editor" : "Akses baca"}</small></div><button className="logout-button" onClick={logout} title="Keluar dari akun"><span>↪</span> Keluar</button></div></div>
     </aside>
     <div className="content">
       {showSettings ? <section className="settings-page"><div className="settings-heading"><p className="kicker">PREFERENSI</p><h1>Settings</h1><p className="subheading">Atur pengalaman Kantong sesuai kebutuhanmu.</p></div><div className="settings-grid"><article className="settings-card"><div><p className="kicker">TAMPILAN</p><h2>Mode aplikasi</h2><p>Gunakan tampilan yang nyaman untuk siang atau malam.</p></div><button className={darkMode ? "theme-toggle dark" : "theme-toggle"} onClick={() => setDarkMode((current) => !current)}><span>{darkMode ? "☾" : "☀"}</span>{darkMode ? "Mode gelap" : "Mode terang"}<i /></button></article><article className="settings-card"><div><p className="kicker">AKUN AKTIF</p><h2>{user.nickname}</h2><p>{user.email}</p></div><span className="permission-badge">{user.canEdit ? "Editor" : "Akses baca"}</span></article><article className="settings-card"><div><p className="kicker">PENYIMPANAN DATA</p><h2>Google Sheets</h2><p>{isDemo ? "Mode demo aktif" : "Terhubung dan tersinkronisasi"}</p></div><span className={isDemo ? "connection-status demo" : "connection-status"}>● {isDemo ? "Belum terhubung" : "Terhubung"}</span></article></div><button className="settings-logout" onClick={logout}>↪ Keluar dari akun</button></section> : <>
-      <header className="topbar"><div><p className="kicker">SELASA, 12 MEI 2026</p><h1>Selamat datang, {user.nickname}.</h1><p className="subheading">Mari lihat bagaimana kabar uangmu hari ini.</p></div>{user.canEdit && <button className="primary-button" onClick={() => { setEditingRecord(null); setShowForm(true); }}><span>＋</span> Catat transaksi</button>}</header>
+      <header className="topbar">
+        <div>
+          <p className="kicker">SELASA, 12 MEI 2026</p>
+          <h1>Selamat datang, {user.nickname}.</h1>
+          <p className="subheading">Mari lihat bagaimana kabar uangmu hari ini.</p>
+        </div>
+        <div className="topbar-actions">
+          {user.canEdit && <button className="primary-button" onClick={() => { setEditingRecord(null); setShowForm(true); }}><span>＋</span> Catat transaksi</button>}
+          <div className="topbar-user">
+            <span className="topbar-avatar">{user.nickname.slice(0, 2).toUpperCase()}</span>
+            <span className="topbar-name">{user.nickname}</span>
+            <button className="topbar-logout" onClick={logout} title="Keluar dari akun"><span>↪</span> Keluar</button>
+          </div>
+        </div>
+      </header>
       {isDemo && <div className="notice"><span>●</span> Mode contoh aktif. Hubungkan Google Sheets untuk menyimpan data secara langsung.</div>}
       <div className="summary-grid"><article className="balance-card"><div className="card-top"><span className="eyebrow">SALDO TERSEDIA</span><span className="trend">↗ 12,8%</span></div><strong className="balance">{money.format(balance)}</strong><p>Naik dari bulan lalu</p><div className="sparkline"><i /><i /><i /><i /><i /><i /><i /><i /></div></article><article className="stat-card"><span className="icon green">↗</span><span className="eyebrow">PEMASUKAN</span><strong>{money.format(totals.income)}</strong><small>Bulan ini</small></article><article className="stat-card"><span className="icon coral">↘</span><span className="eyebrow">PENGELUARAN</span><strong>{money.format(totals.expense)}</strong><small>Bulan ini</small></article><article className="stat-card"><span className="icon yellow">◎</span><span className="eyebrow">DITABUNG</span><strong>{money.format(totals.saving)}</strong><small>Bulan ini</small></article></div>
       <div className="section-heading"><div><p className="kicker">RINGKASAN</p><h2>Aktivitas terbaru</h2></div><div className="filters">{[["all", "Semua"], ["income", "Masuk"], ["expense", "Keluar"], ["saving", "Tabungan"]].map(([value, label]) => <button key={value} className={activeFilter === value ? "filter active" : "filter"} onClick={() => setActiveFilter(value as typeof activeFilter)}>{label}</button>)}<select className="filter target-filter" value={targetFilter} onChange={(event) => setTargetFilter(event.target.value)}><option value="all">Semua target</option>{targets.map((target) => <option key={target.id} value={target.id}>{target.name}</option>)}</select></div></div>
