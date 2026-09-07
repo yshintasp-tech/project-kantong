@@ -15,7 +15,10 @@ async function isEmailRegistered(email: string): Promise<boolean> {
 
   try {
     const scriptData = await appsScriptGet("users");
-    const scriptUser = scriptData?.users?.find((item: { email?: string }) => item.email?.toLowerCase() === normalized);
+    const scriptUser = scriptData?.users?.find(
+      (item: { email?: string; nickname?: string; passwordHash?: string }) =>
+        item.email?.toLowerCase() === normalized && Boolean(item.passwordHash || item.nickname)
+    );
     if (scriptUser) return true;
   } catch {
     // Continue checking other sources
@@ -25,8 +28,8 @@ async function isEmailRegistered(email: string): Promise<boolean> {
   if (auth) {
     try {
       const sheets = google.sheets({ version: "v4", auth });
-      const result = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: "users!B2:B" });
-      const found = (result.data.values ?? []).some((row) => row[0]?.toLowerCase() === normalized);
+      const result = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: "user!A2:D" });
+      const found = (result.data.values ?? []).some((row) => row[0]?.toLowerCase() === normalized && Boolean(row[1] || row[2]));
       if (found) return true;
     } catch {
       // Ignore sheets fetch error
@@ -38,10 +41,11 @@ async function isEmailRegistered(email: string): Promise<boolean> {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { email?: string; password?: string; nickname?: string };
+    const body = (await request.json()) as { email?: string; password?: string; nickname?: string; overwrite?: boolean };
     const email = String(body.email || "").trim().toLowerCase();
     const password = String(body.password || "").trim();
     const nickname = String(body.nickname || "").trim();
+    const overwrite = Boolean(body.overwrite);
 
     if (!email || !password || !nickname) {
       return NextResponse.json({ message: "Email, password, dan nama panggilan wajib diisi." }, { status: 400 });
@@ -60,8 +64,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Nama panggilan minimal 2 karakter." }, { status: 400 });
     }
 
-    if (await isEmailRegistered(email)) {
-      return NextResponse.json({ message: "Email ini sudah terdaftar. Silakan login." }, { status: 400 });
+    // Cek apakah email sudah terdaftar
+    const alreadyRegistered = await isEmailRegistered(email);
+    if (alreadyRegistered && !overwrite) {
+      return NextResponse.json(
+        {
+          message: "Akun dengan email ini sudah terdaftar.",
+          emailExists: true,
+        },
+        { status: 409 }
+      );
     }
 
     const id = `USR${Date.now().toString().slice(-6)}`;
@@ -72,30 +84,37 @@ export async function POST(request: Request) {
     localUsers.set(email, { email, password: hashedPassword, nickname, canEdit });
 
     // 2. Simpan ke Google Apps Script jika tersedia
-    try {
-      await appsScriptPost({
+    let scriptSaved = false;
+    if (process.env.APPS_SCRIPT_URL) {
+      const scriptResult = await appsScriptPost({
         action: "create_user",
         id,
         email,
+        password,
         passwordHash: hashedPassword,
+        name: nickname,
         nickname,
+        role: "user",
         canEdit: true,
       });
-    } catch {
-      // Lanjut jika Apps Script sedang offline / tidak terjangkau
+      if (scriptResult && scriptResult.user) {
+        scriptSaved = true;
+      }
     }
 
     // 3. Simpan langsung ke Google Sheets jika Service Account tersedia
+    let sheetsSaved = false;
     const auth = getAuth();
     if (auth) {
       try {
         const sheets = google.sheets({ version: "v4", auth });
         await sheets.spreadsheets.values.append({
           spreadsheetId: process.env.GOOGLE_SHEET_ID,
-          range: "users!A:E",
+          range: "user!A:D",
           valueInputOption: "USER_ENTERED",
-          requestBody: { values: [[id, email, hashedPassword, nickname, "TRUE"]] },
+          requestBody: { values: [[email, password, nickname, "user"]] },
         });
+        sheetsSaved = true;
       } catch {
         // Fallback jika API sheets gagal
       }
@@ -105,9 +124,14 @@ export async function POST(request: Request) {
     const sessionUser: SessionUser = { email, nickname, canEdit };
     await setSession(sessionUser);
 
+    const isSyncedToSheet = scriptSaved || sheetsSaved;
+
     return NextResponse.json({
-      message: "Registrasi berhasil.",
+      message: isSyncedToSheet
+        ? "Registrasi berhasil dan tersimpan ke spreadsheet."
+        : "Registrasi berhasil di aplikasi. Namun data belum masuk ke Google Sheets karena Apps Script perlu di-deploy ulang dengan kode terbaru dari apps-script/Code.gs.",
       user: sessionUser,
+      syncedToSheet: isSyncedToSheet,
     });
   } catch {
     return NextResponse.json({ message: "Terjadi kesalahan saat memproses pendaftaran." }, { status: 500 });

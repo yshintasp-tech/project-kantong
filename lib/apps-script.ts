@@ -15,8 +15,16 @@ export async function appsScriptGet(action: "finance" | "targets" | "users", own
 export async function appsScriptPost(body: Record<string, unknown>) {
   const base = appsScriptUrl();
   if (!base) return null;
-  const response = await fetch(base, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const data = await response.json();
-  if (!response.ok || data.error) return null;
-  return data;
+  try {
+    const response = await fetch(base, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await response.json();
+    if (!response.ok || data.error) {
+      console.error("[AppsScriptPost Error]", data?.error || response.statusText);
+      return null;
+    }
+    return data;
+  } catch (err) {
+    console.error("[AppsScriptPost Fetch Exception]", err);
+    return null;
+  }
 }

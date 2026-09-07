@@ -41,6 +41,7 @@ export default function Home() {
   const [signupForm, setSignupForm] = useState({ email: "", password: "", nickname: "" });
   const [showSignupPassword, setShowSignupPassword] = useState(false);
   const [signupError, setSignupError] = useState("");
+  const [emailConflict, setEmailConflict] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
@@ -145,29 +146,50 @@ export default function Home() {
     }
   }
 
-  async function signup(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function executeSignup(overwrite = false) {
     setSignupError("");
     setAuthLoading(true);
     try {
       const response = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signupForm),
+        body: JSON.stringify({ ...signupForm, overwrite }),
       });
       const data = await response.json();
+      if (response.status === 409 || data.emailExists) {
+        setEmailConflict(signupForm.email);
+        setAuthLoading(false);
+        return;
+      }
       if (!response.ok) {
         setSignupError(data.message ?? "Pendaftaran gagal.");
         setAuthLoading(false);
         return;
       }
       setUser(data.user);
+      setEmailConflict(null);
       setSignupForm({ email: "", password: "", nickname: "" });
     } catch {
       setSignupError("Gagal menghubungi server.");
     } finally {
       setAuthLoading(false);
     }
+  }
+
+  async function signup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    executeSignup(false);
+  }
+
+  function handleUseOldAccount() {
+    setLoginForm((prev) => ({ ...prev, email: signupForm.email }));
+    setEmailConflict(null);
+    setSignupError("");
+    setAuthMode("login");
+  }
+
+  function handleForceNewAccount() {
+    executeSignup(true);
   }
 
   async function requestReset(event: FormEvent<HTMLFormElement>) {
@@ -198,14 +220,14 @@ export default function Home() {
             <button
               type="button"
               className={authMode === "login" ? "auth-tab active" : "auth-tab"}
-              onClick={() => { setAuthMode("login"); setLoginError(""); setSignupError(""); }}
+              onClick={() => { setAuthMode("login"); setLoginError(""); setSignupError(""); setEmailConflict(null); }}
             >
               Masuk
             </button>
             <button
               type="button"
               className={authMode === "signup" ? "auth-tab active" : "auth-tab"}
-              onClick={() => { setAuthMode("signup"); setLoginError(""); setSignupError(""); }}
+              onClick={() => { setAuthMode("signup"); setLoginError(""); setSignupError(""); setEmailConflict(null); }}
             >
               Daftar Akun
             </button>
@@ -310,6 +332,32 @@ export default function Home() {
                 placeholder="Contoh: Budi"
               />
             </label>
+            {emailConflict && (
+              <div className="email-conflict-banner">
+                <div className="conflict-badge">⚠️ Email Sudah Terdaftar</div>
+                <p className="conflict-text">
+                  Akun dengan email <strong>{emailConflict}</strong> sudah terdaftar di sistem. Kamu dapat tetap membuat akun baru (memperbarui data akun) atau masuk memakai akun lama.
+                </p>
+                <div className="conflict-actions">
+                  <button
+                    type="button"
+                    className="conflict-btn primary"
+                    onClick={handleForceNewAccount}
+                    disabled={authLoading}
+                  >
+                    {authLoading ? "Menyimpan..." : "Tetap Buat Akun Baru"}
+                  </button>
+                  <button
+                    type="button"
+                    className="conflict-btn secondary"
+                    onClick={handleUseOldAccount}
+                    disabled={authLoading}
+                  >
+                    Pakai Akun Lama
+                  </button>
+                </div>
+              </div>
+            )}
             {signupError && <p className="auth-error">{signupError}</p>}
             <button className="primary-button full" type="submit" disabled={authLoading}>
               {authLoading ? "Mendaftarkan..." : "Daftar Akun"}
@@ -318,7 +366,7 @@ export default function Home() {
               <button
                 type="button"
                 className="switch-mode-button"
-                onClick={() => { setAuthMode("login"); setSignupError(""); }}
+                onClick={() => { setAuthMode("login"); setSignupError(""); setEmailConflict(null); }}
               >
                 Sudah punya akun? <strong>Masuk di sini</strong>
               </button>
